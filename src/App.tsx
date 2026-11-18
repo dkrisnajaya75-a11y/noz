@@ -27,6 +27,13 @@ import { RosterView } from './components/RosterView';
 import { RecordsView } from './components/RecordsView';
 import { SettingsView } from './components/SettingsView';
 import { BulkPasteModal } from './components/BulkPasteModal';
+import {
+  DEFAULT_TEMPLATE_STORAGE_KEY,
+  SavedDefaultTemplate,
+  createDefaultTemplate,
+  loadSavedDefaultTemplate,
+  restoreStateFromDefaultTemplate,
+} from './utils/defaultTemplate';
 
 const STORAGE_KEY = 'noz_state_v2';
 
@@ -35,7 +42,12 @@ function loadInitialState(): AppState {
     window.localStorage.removeItem('noz_state_v1');
     window.localStorage.removeItem('koklapang_state_v1');
     const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return createInitialAppState();
+    if (!raw) {
+      const savedDefault = loadSavedDefaultTemplate();
+      return savedDefault
+        ? restoreStateFromDefaultTemplate(savedDefault)
+        : createInitialAppState();
+    }
     const parsed = JSON.parse(raw) as AppState;
     if (
       parsed &&
@@ -72,6 +84,9 @@ function loadInitialState(): AppState {
 
 export default function App() {
   const [state, setState] = useState<AppState>(loadInitialState);
+  const [savedDefault, setSavedDefault] = useState<SavedDefaultTemplate | null>(
+    loadSavedDefaultTemplate
+  );
   const [activeTab, setActiveTab] = useState<ActiveTab>('courts');
   const [isBulkModalOpen, setIsBulkModalOpen] = useState(false);
   const [swapSource, setSwapSource] = useState<SwapSource | null>(null);
@@ -509,6 +524,72 @@ export default function App() {
     updateActiveClub((club) => applyClubConfiguration(club, config));
   };
 
+  const handleSaveAsDefault = (pendingConfig?: {
+    settings: ClubSettings;
+    courtCount: number;
+    clubName: string;
+  }): SavedDefaultTemplate => {
+    const nextState: AppState = pendingConfig
+      ? {
+          ...state,
+          clubs: state.clubs.map((c) =>
+            c.id === activeClub.id
+              ? applyClubConfiguration(c, pendingConfig)
+              : c
+          ),
+        }
+      : state;
+
+    if (pendingConfig) {
+      setRerollHistory({});
+      setSwapSource(null);
+      setState(nextState);
+    }
+
+    const template = createDefaultTemplate(nextState);
+    try {
+      window.localStorage.setItem(
+        DEFAULT_TEMPLATE_STORAGE_KEY,
+        JSON.stringify(template)
+      );
+    } catch {
+      // Ignore quota errors
+    }
+    setSavedDefault(template);
+    return template;
+  };
+
+  const handleRestoreDefault = () => {
+    if (!savedDefault) return;
+    setRerollHistory({});
+    setSwapSource(null);
+    setState(restoreStateFromDefaultTemplate(savedDefault));
+  };
+
+  const handleImportDefault = (template: SavedDefaultTemplate) => {
+    setRerollHistory({});
+    setSwapSource(null);
+    try {
+      window.localStorage.setItem(
+        DEFAULT_TEMPLATE_STORAGE_KEY,
+        JSON.stringify(template)
+      );
+    } catch {
+      // Ignore quota errors
+    }
+    setSavedDefault(template);
+    setState(restoreStateFromDefaultTemplate(template));
+  };
+
+  const handleClearCustomDefault = () => {
+    try {
+      window.localStorage.removeItem(DEFAULT_TEMPLATE_STORAGE_KEY);
+    } catch {
+      // Ignore storage errors
+    }
+    setSavedDefault(null);
+  };
+
   const handleCreateClub = (name: string, courtCount: number) => {
     const clamped = Math.max(1, Math.min(12, courtCount));
     const id = `club_${Date.now()}`;
@@ -701,7 +782,12 @@ export default function App() {
             key={activeClub.id}
             clubs={state.clubs}
             activeClub={activeClub}
+            savedDefault={savedDefault}
             onSaveChanges={handleSaveClubChanges}
+            onSaveAsDefault={handleSaveAsDefault}
+            onRestoreDefault={handleRestoreDefault}
+            onImportDefault={handleImportDefault}
+            onClearCustomDefault={handleClearCustomDefault}
             onCreateClub={handleCreateClub}
             onRenameClub={handleRenameClub}
             onDeleteClub={handleDeleteClub}

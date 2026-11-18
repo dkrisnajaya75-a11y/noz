@@ -1,5 +1,15 @@
-import { useEffect, useState } from 'react';
-import { Check, Minus, Plus, RotateCcw, Save, Trash2 } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import {
+  BookmarkCheck,
+  Check,
+  Download,
+  Minus,
+  Plus,
+  RotateCcw,
+  Save,
+  Trash2,
+  Upload,
+} from 'lucide-react';
 import {
   Club,
   ClubSettings,
@@ -8,15 +18,29 @@ import {
   MatchingMode,
   QueueMode,
 } from '../types/badminton';
+import {
+  SavedDefaultTemplate,
+  createDefaultTemplate,
+  parseDefaultTemplateJson,
+} from '../utils/defaultTemplate';
 
 interface SettingsViewProps {
   clubs: Club[];
   activeClub: Club;
+  savedDefault: SavedDefaultTemplate | null;
   onSaveChanges: (config: {
     settings: ClubSettings;
     courtCount: number;
     clubName: string;
   }) => void;
+  onSaveAsDefault: (pendingConfig: {
+    settings: ClubSettings;
+    courtCount: number;
+    clubName: string;
+  }) => SavedDefaultTemplate;
+  onRestoreDefault: () => void;
+  onImportDefault: (template: SavedDefaultTemplate) => void;
+  onClearCustomDefault: () => void;
   onCreateClub: (name: string, courtCount: number) => void;
   onRenameClub: (clubId: string, newName: string) => void;
   onDeleteClub: (clubId: string) => void;
@@ -38,7 +62,12 @@ function normalizeSettings(settings: ClubSettings): ClubSettings {
 export function SettingsView({
   clubs,
   activeClub,
+  savedDefault,
   onSaveChanges,
+  onSaveAsDefault,
+  onRestoreDefault,
+  onImportDefault,
+  onClearCustomDefault,
   onCreateClub,
   onRenameClub,
   onDeleteClub,
@@ -49,6 +78,11 @@ export function SettingsView({
   const [draftCourtCount, setDraftCourtCount] = useState(activeClub.courts.length);
   const [clubNameDraft, setClubNameDraft] = useState(activeClub.name);
   const [justSaved, setJustSaved] = useState(false);
+
+  const [defaultFeedback, setDefaultFeedback] = useState<string | null>(null);
+  const [defaultError, setDefaultError] = useState<string | null>(null);
+  const [confirmRestoreDefault, setConfirmRestoreDefault] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const [newClubName, setNewClubName] = useState('');
   const [newClubCourts, setNewClubCourts] = useState(2);
@@ -112,6 +146,70 @@ export function SettingsView({
     onCreateClub(trimmed, newClubCourts);
     setNewClubName('');
     setNewClubCourts(2);
+  };
+
+  const handleSaveAllAsDefault = () => {
+    setDefaultError(null);
+    onSaveAsDefault({
+      settings: draftSettings,
+      courtCount: draftCourtCount,
+      clubName: trimmedClubName || activeClub.name,
+    });
+    setJustSaved(true);
+    setConfirmRestoreDefault(false);
+    setDefaultFeedback(
+      'Semua pemain dan pengaturan berhasil disimpan sebagai default.'
+    );
+  };
+
+  const handleExportDefaultJson = () => {
+    setDefaultError(null);
+    const snapshot =
+      savedDefault ??
+      createDefaultTemplate({
+        clubs,
+        activeClubId: activeClub.id,
+      });
+    const blob = new Blob([JSON.stringify(snapshot, null, 2)], {
+      type: 'application/json',
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'noz-default.json';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    setDefaultFeedback('File default (noz-default.json) berhasil diunduh.');
+  };
+
+  const handleImportFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setDefaultError(null);
+    const reader = new FileReader();
+    reader.onload = () => {
+      const content = typeof reader.result === 'string' ? reader.result : '';
+      const parsed = parseDefaultTemplateJson(content);
+      if (!parsed) {
+        setDefaultError(
+          'Format file default tidak valid. Gunakan file .json hasil ekspor dari Noz.'
+        );
+        return;
+      }
+      onImportDefault(parsed);
+      setJustSaved(true);
+      setConfirmRestoreDefault(false);
+      setDefaultFeedback(
+        'File default berhasil diimpor dan diterapkan sebagai default aktif.'
+      );
+    };
+    reader.onerror = () => {
+      setDefaultError('Gagal membaca file yang dipilih.');
+    };
+    reader.readAsText(file);
   };
 
   const matchingOptions: Array<{
@@ -689,6 +787,173 @@ export function SettingsView({
             </button>
           </div>
         </form>
+      </section>
+
+      {/* Default Players & Settings Snapshot */}
+      <section
+        aria-label="Default pemain dan pengaturan"
+        className="bg-white border border-slate-200 rounded-xl p-5 space-y-4"
+      >
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="text-base font-bold text-slate-900">
+              Default Pemain &amp; Pengaturan
+            </h2>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Simpan seluruh daftar pemain, jumlah lapangan, dan pengaturan saat ini sebagai default bawaan agar mudah dipulihkan kapan saja atau dipindahkan ke perangkat lain.
+            </p>
+          </div>
+          <span className="text-xs font-mono text-slate-600 bg-slate-100 px-2.5 py-1 rounded-md tabular-nums shrink-0">
+            Aktif: {clubs.length} klub ·{' '}
+            {clubs.reduce((sum, c) => sum + c.players.length, 0)} pemain ·{' '}
+            {draftCourtCount} lapangan
+          </span>
+        </div>
+
+        <div className="rounded-lg bg-slate-50 border border-slate-200 px-3.5 py-2.5 text-xs text-slate-700 flex flex-wrap items-center justify-between gap-2">
+          {savedDefault ? (
+            <>
+              <span>
+                Default tersimpan:{' '}
+                <strong className="font-semibold text-slate-900">
+                  {savedDefault.state.clubs.length} klub ·{' '}
+                  {savedDefault.state.clubs.reduce(
+                    (sum, c) => sum + c.players.length,
+                    0
+                  )}{' '}
+                  pemain ·{' '}
+                  {savedDefault.state.clubs.reduce(
+                    (sum, c) => sum + c.courts.length,
+                    0
+                  )}{' '}
+                  lapangan
+                </strong>
+              </span>
+              <span className="font-mono text-slate-500 tabular-nums">
+                Disimpan{' '}
+                {new Date(savedDefault.savedAt).toLocaleString('id-ID', {
+                  day: '2-digit',
+                  month: 'short',
+                  hour: '2-digit',
+                  minute: '2-digit',
+                })}
+              </span>
+            </>
+          ) : (
+            <span className="text-slate-600">
+              Belum ada default kustom tersimpan. Klik tombol di bawah untuk menyimpan kondisi saat ini sebagai default.
+            </span>
+          )}
+        </div>
+
+        {defaultFeedback && (
+          <div
+            role="status"
+            className="rounded-lg bg-emerald-50 border border-emerald-200 px-3.5 py-2 text-xs font-medium text-emerald-900 flex items-center gap-2"
+          >
+            <Check className="w-4 h-4 text-emerald-700 shrink-0" aria-hidden="true" />
+            <span>{defaultFeedback}</span>
+          </div>
+        )}
+
+        {defaultError && (
+          <div
+            role="alert"
+            className="rounded-lg bg-rose-50 border border-rose-200 px-3.5 py-2 text-xs font-medium text-rose-900"
+          >
+            {defaultError}
+          </div>
+        )}
+
+        <div className="flex flex-wrap items-center gap-2.5">
+          <button
+            type="button"
+            onClick={handleSaveAllAsDefault}
+            className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-emerald-700 hover:bg-emerald-800 rounded-lg transition-colors cursor-pointer"
+          >
+            <BookmarkCheck className="w-4 h-4" aria-hidden="true" />
+            <span>Simpan Semua Sebagai Default</span>
+          </button>
+
+          {savedDefault && !confirmRestoreDefault && (
+            <button
+              type="button"
+              onClick={() => setConfirmRestoreDefault(true)}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-lg transition-colors cursor-pointer"
+            >
+              <RotateCcw className="w-4 h-4" aria-hidden="true" />
+              <span>Muat dari Default</span>
+            </button>
+          )}
+
+          {savedDefault && confirmRestoreDefault && (
+            <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-1.5">
+              <span className="text-xs font-medium text-amber-950">
+                Muat ulang pemain &amp; pengaturan default?
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  onRestoreDefault();
+                  setConfirmRestoreDefault(false);
+                  setDefaultFeedback(
+                    'Daftar pemain dan pengaturan berhasil dipulihkan dari default.'
+                  );
+                }}
+                className="px-2.5 py-1 text-xs font-semibold text-white bg-amber-700 hover:bg-amber-800 rounded cursor-pointer"
+              >
+                Ya, Muat
+              </button>
+              <button
+                type="button"
+                onClick={() => setConfirmRestoreDefault(false)}
+                className="px-2 py-1 text-xs font-medium text-slate-700 hover:underline cursor-pointer"
+              >
+                Batal
+              </button>
+            </div>
+          )}
+
+          <button
+            type="button"
+            onClick={handleExportDefaultJson}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-lg transition-colors cursor-pointer"
+          >
+            <Download className="w-4 h-4" aria-hidden="true" />
+            <span>Ekspor Default (.json)</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-lg transition-colors cursor-pointer"
+          >
+            <Upload className="w-4 h-4" aria-hidden="true" />
+            <span>Impor Default (.json)</span>
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".json,application/json"
+            onChange={handleImportFileChange}
+            aria-label="Impor file konfigurasi default JSON"
+            className="hidden"
+          />
+
+          {savedDefault && (
+            <button
+              type="button"
+              onClick={() => {
+                onClearCustomDefault();
+                setConfirmRestoreDefault(false);
+                setDefaultFeedback('Default kustom dihapus.');
+              }}
+              className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-rose-700 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+            >
+              <span>Hapus Default</span>
+            </button>
+          )}
+        </div>
       </section>
 
       {/* Sticky Save Changes Bar */}
