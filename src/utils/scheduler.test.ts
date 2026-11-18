@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Club, Player } from '../types/badminton';
 import {
+  applyClubConfiguration,
   computeEvennessStats,
   finishCourtMatch,
   getLineupPlayerIds,
@@ -377,4 +378,39 @@ test('sameGenderPercent steers suggestions between same-gender and mixed-gender 
   const balancedIds = getLineupPlayerIds(suggestLineupForCourt(clubHalf, 'c1'));
   assert.ok(balancedIds.includes('f1'));
   assert.ok(balancedIds.includes('f2'));
+});
+
+test('applyClubConfiguration updates name, courts, and settings atomically', () => {
+  const players = [
+    makePlayer('p1'),
+    makePlayer('p2'),
+    makePlayer('p3'),
+    makePlayer('p4'),
+    makePlayer('p5'),
+    makePlayer('p6'),
+    makePlayer('p7'),
+    makePlayer('p8'),
+  ];
+  const club = makeBaseClub(players, 1);
+
+  const updated = applyClubConfiguration(club, {
+    clubName: 'PB Juara',
+    courtCount: 2,
+    settings: {
+      ...club.settings,
+      queueMode: 'split',
+      genderMatching: 'same_or_mixed',
+      sameGenderPercent: 75,
+    },
+  });
+
+  assert.equal(updated.name, 'PB Juara');
+  assert.equal(updated.courts.length, 2);
+  assert.equal(updated.settings.queueMode, 'split');
+  assert.equal(updated.settings.sameGenderPercent, 75);
+  assert.equal(
+    updated.players.every((p) => p.assignedCourtId !== null),
+    true
+  );
+  assert.equal(getLineupPlayerIds(updated.courts[0].lineup).length, 4);
 });

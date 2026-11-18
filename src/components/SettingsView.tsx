@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Minus, Plus, Trash2 } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Check, Minus, Plus, RotateCcw, Save, Trash2 } from 'lucide-react';
 import {
   Club,
   ClubSettings,
@@ -12,32 +12,97 @@ import {
 interface SettingsViewProps {
   clubs: Club[];
   activeClub: Club;
-  onUpdateSettings: (updates: Partial<ClubSettings>) => void;
-  onSetCourtCount: (count: number) => void;
+  onSaveChanges: (config: {
+    settings: ClubSettings;
+    courtCount: number;
+    clubName: string;
+  }) => void;
   onCreateClub: (name: string, courtCount: number) => void;
   onRenameClub: (clubId: string, newName: string) => void;
   onDeleteClub: (clubId: string) => void;
 }
 
+function normalizeSettings(settings: ClubSettings): ClubSettings {
+  return {
+    matchingMode: settings.matchingMode,
+    genderMatching: settings.genderMatching ?? 'free',
+    sameGenderPercent:
+      typeof settings.sameGenderPercent === 'number'
+        ? Math.max(0, Math.min(100, Math.round(settings.sameGenderPercent)))
+        : 50,
+    queueMode: settings.queueMode,
+    genderStyle: settings.genderStyle,
+  };
+}
+
 export function SettingsView({
   clubs,
   activeClub,
-  onUpdateSettings,
-  onSetCourtCount,
+  onSaveChanges,
   onCreateClub,
   onRenameClub,
   onDeleteClub,
 }: SettingsViewProps) {
+  const savedSettings = normalizeSettings(activeClub.settings);
+
+  const [draftSettings, setDraftSettings] = useState<ClubSettings>(savedSettings);
+  const [draftCourtCount, setDraftCourtCount] = useState(activeClub.courts.length);
   const [clubNameDraft, setClubNameDraft] = useState(activeClub.name);
+  const [justSaved, setJustSaved] = useState(false);
+
   const [newClubName, setNewClubName] = useState('');
   const [newClubCourts, setNewClubCourts] = useState(2);
   const [confirmDeleteClub, setConfirmDeleteClub] = useState(false);
 
+  useEffect(() => {
+    setDraftSettings(normalizeSettings(activeClub.settings));
+  }, [activeClub.settings]);
+
+  useEffect(() => {
+    setDraftCourtCount(activeClub.courts.length);
+  }, [activeClub.courts.length]);
+
+  useEffect(() => {
+    setClubNameDraft(activeClub.name);
+  }, [activeClub.name]);
+
+  const trimmedClubName = clubNameDraft.trim();
+  const hasChanges =
+    draftSettings.matchingMode !== savedSettings.matchingMode ||
+    draftSettings.genderMatching !== savedSettings.genderMatching ||
+    draftSettings.sameGenderPercent !== savedSettings.sameGenderPercent ||
+    draftSettings.queueMode !== savedSettings.queueMode ||
+    draftSettings.genderStyle !== savedSettings.genderStyle ||
+    draftCourtCount !== activeClub.courts.length ||
+    (trimmedClubName.length > 0 && trimmedClubName !== activeClub.name);
+
+  const updateDraftSettings = (updates: Partial<ClubSettings>) => {
+    setJustSaved(false);
+    setDraftSettings((prev) => ({ ...prev, ...updates }));
+  };
+
+  const handleSaveAll = () => {
+    if (!hasChanges) return;
+    onSaveChanges({
+      settings: draftSettings,
+      courtCount: draftCourtCount,
+      clubName: trimmedClubName || activeClub.name,
+    });
+    setJustSaved(true);
+  };
+
+  const handleDiscardChanges = () => {
+    setDraftSettings(savedSettings);
+    setDraftCourtCount(activeClub.courts.length);
+    setClubNameDraft(activeClub.name);
+    setJustSaved(false);
+  };
+
   const handleRenameSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const trimmed = clubNameDraft.trim();
-    if (!trimmed) return;
-    onRenameClub(activeClub.id, trimmed);
+    if (!trimmedClubName) return;
+    onRenameClub(activeClub.id, trimmedClubName);
+    setJustSaved(true);
   };
 
   const handleCreateClub = (e: React.FormEvent) => {
@@ -128,14 +193,38 @@ export function SettingsView({
   ];
 
   return (
-    <div className="max-w-4xl space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight text-slate-900">
-          Pengaturan Klub &amp; Penjadwalan
-        </h1>
-        <p className="text-sm text-slate-600 mt-1">
-          Sesuaikan jumlah lapangan, prioritas rotasi pemain, mode antrean, tampilan gender, dan daftar klub yang Anda kelola.
-        </p>
+    <div className="max-w-4xl space-y-6 pb-8">
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+        <div className="min-w-0">
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900">
+            Pengaturan Klub &amp; Penjadwalan
+          </h1>
+          <p className="text-sm text-slate-600 mt-1">
+            Sesuaikan jumlah lapangan, prioritas rotasi pemain, mode antrean, dan tampilan gender, lalu klik Simpan Perubahan.
+          </p>
+        </div>
+
+        <div className="flex items-center gap-2 shrink-0">
+          {hasChanges && (
+            <button
+              type="button"
+              onClick={handleDiscardChanges}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-lg transition-colors cursor-pointer"
+            >
+              <RotateCcw className="w-4 h-4" aria-hidden="true" />
+              <span>Batal</span>
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={handleSaveAll}
+            disabled={!hasChanges}
+            className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-emerald-700 hover:bg-emerald-800 disabled:bg-slate-200 disabled:text-slate-500 disabled:cursor-not-allowed rounded-lg transition-colors cursor-pointer"
+          >
+            <Save className="w-4 h-4" aria-hidden="true" />
+            <span>Simpan Perubahan</span>
+          </button>
+        </div>
       </div>
 
       {/* Matching Priority */}
@@ -151,12 +240,12 @@ export function SettingsView({
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
           {matchingOptions.map((opt) => {
-            const active = activeClub.settings.matchingMode === opt.id;
+            const active = draftSettings.matchingMode === opt.id;
             return (
               <button
                 key={opt.id}
                 type="button"
-                onClick={() => onUpdateSettings({ matchingMode: opt.id })}
+                onClick={() => updateDraftSettings({ matchingMode: opt.id })}
                 aria-pressed={active}
                 className={`text-left p-4 rounded-xl border transition-colors cursor-pointer ${
                   active
@@ -189,15 +278,14 @@ export function SettingsView({
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           {genderMatchingOptions.map((opt) => {
-            const active =
-              (activeClub.settings.genderMatching ?? 'free') === opt.id;
-            const samePct = activeClub.settings.sameGenderPercent ?? 50;
+            const active = draftSettings.genderMatching === opt.id;
+            const samePct = draftSettings.sameGenderPercent;
             const mixedPct = 100 - samePct;
             return (
               <button
                 key={opt.id}
                 type="button"
-                onClick={() => onUpdateSettings({ genderMatching: opt.id })}
+                onClick={() => updateDraftSettings({ genderMatching: opt.id })}
                 aria-pressed={active}
                 className={`text-left p-4 rounded-xl border transition-colors cursor-pointer ${
                   active
@@ -223,14 +311,14 @@ export function SettingsView({
           })}
         </div>
 
-        {(activeClub.settings.genderMatching ?? 'free') === 'same_or_mixed' && (() => {
-          const samePct = activeClub.settings.sameGenderPercent ?? 50;
+        {draftSettings.genderMatching === 'same_or_mixed' && (() => {
+          const samePct = draftSettings.sameGenderPercent;
           const mixedPct = 100 - samePct;
           const updateSamePct = (val: number) => {
             const clamped = Number.isFinite(val)
               ? Math.max(0, Math.min(100, Math.round(val)))
               : 50;
-            onUpdateSettings({ sameGenderPercent: clamped });
+            updateDraftSettings({ sameGenderPercent: clamped });
           };
           const presets = [
             { label: '50% / 50%', same: 50 },
@@ -363,12 +451,12 @@ export function SettingsView({
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           {queueOptions.map((opt) => {
-            const active = activeClub.settings.queueMode === opt.id;
+            const active = draftSettings.queueMode === opt.id;
             return (
               <button
                 key={opt.id}
                 type="button"
-                onClick={() => onUpdateSettings({ queueMode: opt.id })}
+                onClick={() => updateDraftSettings({ queueMode: opt.id })}
                 aria-pressed={active}
                 className={`text-left p-4 rounded-xl border transition-colors cursor-pointer ${
                   active
@@ -401,12 +489,12 @@ export function SettingsView({
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
           {genderStyleOptions.map((opt) => {
-            const active = activeClub.settings.genderStyle === opt.id;
+            const active = draftSettings.genderStyle === opt.id;
             return (
               <button
                 key={opt.id}
                 type="button"
-                onClick={() => onUpdateSettings({ genderStyle: opt.id })}
+                onClick={() => updateDraftSettings({ genderStyle: opt.id })}
                 aria-pressed={active}
                 className={`text-left p-4 rounded-xl border transition-colors cursor-pointer ${
                   active
@@ -440,20 +528,26 @@ export function SettingsView({
         <div className="flex items-center gap-3">
           <button
             type="button"
-            onClick={() => onSetCourtCount(activeClub.courts.length - 1)}
-            disabled={activeClub.courts.length <= 1}
+            onClick={() => {
+              setJustSaved(false);
+              setDraftCourtCount((c) => Math.max(1, c - 1));
+            }}
+            disabled={draftCourtCount <= 1}
             aria-label="Kurangi jumlah lapangan"
             className="p-2 bg-white border border-slate-300 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed rounded-lg cursor-pointer"
           >
             <Minus className="w-4 h-4" />
           </button>
-          <span className="text-lg font-bold font-mono tabular-nums text-slate-900 w-16 text-center">
-            {activeClub.courts.length} / 12
+          <span className="text-lg font-bold font-mono tabular-nums text-slate-900 min-w-[4.5rem] whitespace-nowrap text-center">
+            {draftCourtCount} / 12
           </span>
           <button
             type="button"
-            onClick={() => onSetCourtCount(activeClub.courts.length + 1)}
-            disabled={activeClub.courts.length >= 12}
+            onClick={() => {
+              setJustSaved(false);
+              setDraftCourtCount((c) => Math.min(12, c + 1));
+            }}
+            disabled={draftCourtCount >= 12}
             aria-label="Tambah jumlah lapangan"
             className="p-2 bg-white border border-slate-300 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed rounded-lg cursor-pointer"
           >
@@ -489,13 +583,16 @@ export function SettingsView({
               id="rename-club-input"
               type="text"
               value={clubNameDraft}
-              onChange={(e) => setClubNameDraft(e.target.value)}
+              onChange={(e) => {
+                setJustSaved(false);
+                setClubNameDraft(e.target.value);
+              }}
               className="w-full text-sm bg-white border border-slate-300 rounded-lg px-3 py-2 text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-600"
             />
           </div>
           <button
             type="submit"
-            disabled={!clubNameDraft.trim() || clubNameDraft.trim() === activeClub.name}
+            disabled={!trimmedClubName || trimmedClubName === activeClub.name}
             className="px-4 py-2 text-sm font-semibold text-white bg-slate-900 hover:bg-slate-800 disabled:bg-slate-200 disabled:text-slate-400 rounded-lg transition-colors cursor-pointer"
           >
             Simpan Nama
@@ -593,6 +690,58 @@ export function SettingsView({
           </div>
         </form>
       </section>
+
+      {/* Sticky Save Changes Bar */}
+      <div
+        role="region"
+        aria-label="Simpan perubahan pengaturan"
+        className={`sticky bottom-4 z-20 rounded-xl border px-4 py-3 shadow-lg flex flex-wrap items-center justify-between gap-3 transition-colors ${
+          hasChanges
+            ? 'bg-amber-50 border-amber-300'
+            : justSaved
+            ? 'bg-emerald-50 border-emerald-300'
+            : 'bg-white border-slate-200'
+        }`}
+      >
+        <div className="flex items-center gap-2 text-sm">
+          {hasChanges ? (
+            <span className="font-medium text-amber-950">
+              Ada perubahan pengaturan yang belum disimpan.
+            </span>
+          ) : justSaved ? (
+            <span className="inline-flex items-center gap-1.5 font-semibold text-emerald-800">
+              <Check className="w-4 h-4" aria-hidden="true" />
+              <span>Perubahan berhasil disimpan.</span>
+            </span>
+          ) : (
+            <span className="text-slate-600">
+              Semua perubahan pengaturan sudah tersimpan.
+            </span>
+          )}
+        </div>
+
+        <div className="flex items-center gap-2 shrink-0">
+          {hasChanges && (
+            <button
+              type="button"
+              onClick={handleDiscardChanges}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-lg transition-colors cursor-pointer"
+            >
+              <RotateCcw className="w-4 h-4" aria-hidden="true" />
+              <span>Batal</span>
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={handleSaveAll}
+            disabled={!hasChanges}
+            className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-emerald-700 hover:bg-emerald-800 disabled:bg-slate-200 disabled:text-slate-500 disabled:cursor-not-allowed rounded-lg transition-colors cursor-pointer"
+          >
+            <Save className="w-4 h-4" aria-hidden="true" />
+            <span>Simpan Perubahan</span>
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

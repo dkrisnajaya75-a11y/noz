@@ -1,5 +1,6 @@
 import {
   Club,
+  ClubSettings,
   Court,
   CourtLineup,
   GenderMatchingMode,
@@ -862,4 +863,84 @@ export function computeEvennessStats(club: Club): EvennessStats {
     maxMatches: max,
     evennessPercent,
   };
+}
+
+export function applyClubConfiguration(
+  club: Club,
+  config: {
+    settings: ClubSettings;
+    courtCount: number;
+    clubName: string;
+  }
+): Club {
+  const trimmedName = config.clubName.trim() || club.name;
+  const clampedCount = Math.max(1, Math.min(12, Math.round(config.courtCount)));
+
+  let nextCourts: Court[] = club.courts;
+  if (clampedCount > club.courts.length) {
+    const added: Court[] = [];
+    for (let num = club.courts.length + 1; num <= clampedCount; num++) {
+      added.push({
+        id: `${club.id}_court_${Date.now()}_${num}`,
+        number: num,
+        name: `Lapangan ${num}`,
+        status: 'open',
+        lineup: { teamA: [null, null], teamB: [null, null] },
+        pinnedPlayerIds: [],
+        startedAt: null,
+      });
+    }
+    nextCourts = [...club.courts, ...added];
+  } else if (clampedCount < club.courts.length) {
+    nextCourts = club.courts.slice(0, clampedCount).map((c, idx) => ({
+      ...c,
+      number: idx + 1,
+      name: `Lapangan ${idx + 1}`,
+    }));
+  }
+
+  const validCourtIds = new Set(nextCourts.map((c) => c.id));
+  const fallbackCourtId = nextCourts[0]?.id ?? null;
+
+  let nextPlayers = club.players.map((p) =>
+    p.assignedCourtId && !validCourtIds.has(p.assignedCourtId)
+      ? { ...p, assignedCourtId: fallbackCourtId }
+      : p
+  );
+
+  if (config.settings.queueMode === 'split' && nextCourts.length > 0) {
+    nextPlayers = nextPlayers.map((p, idx) =>
+      p.assignedCourtId && validCourtIds.has(p.assignedCourtId)
+        ? p
+        : {
+            ...p,
+            assignedCourtId: nextCourts[idx % nextCourts.length].id,
+          }
+    );
+  }
+
+  const shouldResuggest =
+    config.settings.matchingMode !== club.settings.matchingMode ||
+    config.settings.genderMatching !== club.settings.genderMatching ||
+    config.settings.sameGenderPercent !== club.settings.sameGenderPercent ||
+    config.settings.queueMode !== club.settings.queueMode;
+
+  if (shouldResuggest) {
+    nextCourts = nextCourts.map((c) =>
+      c.status === 'open'
+        ? {
+            ...c,
+            lineup: { teamA: [null, null], teamB: [null, null] },
+          }
+        : c
+    );
+  }
+
+  return reconcileOpenCourts({
+    ...club,
+    name: trimmedName,
+    settings: { ...config.settings },
+    players: nextPlayers,
+    courts: nextCourts,
+  });
 }

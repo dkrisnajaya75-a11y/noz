@@ -11,6 +11,7 @@ import {
 import { createInitialAppState } from './utils/seedData';
 import { clampLevel } from './utils/genderStyle';
 import {
+  applyClubConfiguration,
   finishCourtMatch,
   getLineupPlayerIds,
   makeLineupSignature,
@@ -498,53 +499,15 @@ export default function App() {
     handleUpdatePlayer(playerId, { assignedCourtId: courtId });
   };
 
-  const handleUpdateSettings = (updates: Partial<ClubSettings>) => {
+
+  const handleSaveClubChanges = (config: {
+    settings: ClubSettings;
+    courtCount: number;
+    clubName: string;
+  }) => {
     setRerollHistory({});
-    updateActiveClub((club) => {
-      const nextSettings = { ...club.settings, ...updates };
-      let nextPlayers = club.players;
-
-      // When switching to split mode, auto-assign any unassigned players round-robin
-      if (updates.queueMode === 'split' && club.courts.length > 0) {
-        const validCourtIds = new Set(club.courts.map((c) => c.id));
-        nextPlayers = club.players.map((p, idx) =>
-          p.assignedCourtId && validCourtIds.has(p.assignedCourtId)
-            ? p
-            : {
-                ...p,
-                assignedCourtId: club.courts[idx % club.courts.length].id,
-              }
-        );
-      }
-
-      // If matchingMode, genderMatching, sameGenderPercent, or queueMode changed, clear open court lineups to re-suggest fairly
-      const shouldResuggest =
-        updates.matchingMode !== undefined ||
-        updates.genderMatching !== undefined ||
-        updates.sameGenderPercent !== undefined ||
-        updates.queueMode !== undefined;
-
-      const nextCourts = shouldResuggest
-        ? club.courts.map((c) =>
-            c.status === 'open'
-              ? {
-                  ...c,
-                  lineup: { teamA: [null, null], teamB: [null, null] } as {
-                    teamA: [string | null, string | null];
-                    teamB: [string | null, string | null];
-                  },
-                }
-              : c
-          )
-        : club.courts;
-
-      return reconcileOpenCourts({
-        ...club,
-        settings: nextSettings,
-        players: nextPlayers,
-        courts: nextCourts,
-      });
-    });
+    setSwapSource(null);
+    updateActiveClub((club) => applyClubConfiguration(club, config));
   };
 
   const handleCreateClub = (name: string, courtCount: number) => {
@@ -739,8 +702,7 @@ export default function App() {
             key={activeClub.id}
             clubs={state.clubs}
             activeClub={activeClub}
-            onUpdateSettings={handleUpdateSettings}
-            onSetCourtCount={handleSetCourtCount}
+            onSaveChanges={handleSaveClubChanges}
             onCreateClub={handleCreateClub}
             onRenameClub={handleRenameClub}
             onDeleteClub={handleDeleteClub}
