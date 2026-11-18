@@ -217,7 +217,9 @@ export function WaitingQueue({
       <div className="p-3 space-y-2 max-h-[540px] overflow-y-auto">
         {displayedWaiting.length === 0 ? (
           <div className="py-8 text-center text-xs text-slate-500">
-            {queueMode === 'split'
+            {players.length === 0
+              ? 'Belum ada pemain di klub ini. Tambah cepat di atas atau klik Impor Pemain.'
+              : queueMode === 'split'
               ? 'Belum ada pemain menunggu di antrean lapangan ini.'
               : 'Semua pemain siap sedang bermain di lapangan.'}
           </div>

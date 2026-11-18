@@ -28,14 +28,13 @@ import { RecordsView } from './components/RecordsView';
 import { SettingsView } from './components/SettingsView';
 import { BulkPasteModal } from './components/BulkPasteModal';
 
-const STORAGE_KEY = 'noz_state_v1';
-const LEGACY_STORAGE_KEY = 'koklapang_state_v1';
+const STORAGE_KEY = 'noz_state_v2';
 
 function loadInitialState(): AppState {
   try {
-    const raw =
-      window.localStorage.getItem(STORAGE_KEY) ??
-      window.localStorage.getItem(LEGACY_STORAGE_KEY);
+    window.localStorage.removeItem('noz_state_v1');
+    window.localStorage.removeItem('koklapang_state_v1');
+    const raw = window.localStorage.getItem(STORAGE_KEY);
     if (!raw) return createInitialAppState();
     const parsed = JSON.parse(raw) as AppState;
     if (

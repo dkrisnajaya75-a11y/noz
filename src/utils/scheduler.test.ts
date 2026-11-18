@@ -12,6 +12,7 @@ import {
   suggestLineupForCourt,
   swapSlotWithPlayerOrSlot,
 } from './scheduler';
+import { createInitialAppState } from './seedData';
 
 function makePlayer(
   id: string,
@@ -414,3 +415,14 @@ test('applyClubConfiguration updates name, courts, and settings atomically', () 
   );
   assert.equal(getLineupPlayerIds(updated.courts[0].lineup).length, 4);
 });
+
+test('createInitialAppState seeds only PB Noz club cleanly', () => {
+  const initial = createInitialAppState();
+  assert.equal(initial.clubs.length, 1);
+  assert.equal(initial.clubs[0].name, 'PB Noz');
+  assert.equal(initial.activeClubId, initial.clubs[0].id);
+  assert.equal(initial.clubs[0].players.length, 0);
+  assert.equal(initial.clubs[0].records.length, 0);
+  assert.ok(initial.clubs[0].courts.length >= 1);
+});
+
