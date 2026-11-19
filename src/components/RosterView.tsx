@@ -15,6 +15,7 @@ import {
   LEVEL_LABELS,
   LEVEL_OPTIONS,
 } from '../utils/genderStyle';
+import { isPlayerPresent } from '../utils/scheduler';
 
 interface RosterViewProps {
   players: Player[];
@@ -27,6 +28,7 @@ interface RosterViewProps {
     playerId: string,
     updates: Partial<Pick<Player, 'name' | 'gender' | 'level' | 'isActive' | 'assignedCourtId'>>
   ) => void;
+  onSetPlayerAttendance: (playerId: string, isPresent: boolean) => void;
   onOpenBulkImport: () => void;
 }
 
@@ -38,6 +40,7 @@ export function RosterView({
   onAddPlayer,
   onRemovePlayer,
   onUpdatePlayer,
+  onSetPlayerAttendance,
   onOpenBulkImport,
 }: RosterViewProps) {
   const [name, setName] = useState('');
@@ -340,21 +343,32 @@ export function RosterView({
                         {player.matchesPlayed}x
                       </td>
                       <td className="py-2.5 px-4">
-                        <button
-                          type="button"
-                          onClick={() =>
-                            onUpdatePlayer(player.id, {
-                              isActive: !player.isActive,
-                            })
-                          }
-                          className={`px-2.5 py-1 text-xs font-medium rounded-md border transition-colors cursor-pointer ${
-                            player.isActive
-                              ? 'bg-emerald-50 border-emerald-200 text-emerald-800 hover:bg-emerald-100'
-                              : 'bg-slate-100 border-slate-200 text-slate-600 hover:bg-slate-200'
-                          }`}
-                        >
-                          {player.isActive ? 'Siap Main' : 'Istirahat'}
-                        </button>
+                        {!isPlayerPresent(player) ? (
+                          <button
+                            type="button"
+                            onClick={() => onSetPlayerAttendance(player.id, true)}
+                            title="Klik untuk menandai hadir"
+                            className="px-2.5 py-1 text-xs font-medium rounded-md border transition-colors cursor-pointer bg-amber-50 border-amber-200 text-amber-800 hover:bg-amber-100"
+                          >
+                            Belum Hadir
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              onUpdatePlayer(player.id, {
+                                isActive: !player.isActive,
+                              })
+                            }
+                            className={`px-2.5 py-1 text-xs font-medium rounded-md border transition-colors cursor-pointer ${
+                              player.isActive
+                                ? 'bg-emerald-50 border-emerald-200 text-emerald-800 hover:bg-emerald-100'
+                                : 'bg-slate-100 border-slate-200 text-slate-600 hover:bg-slate-200'
+                            }`}
+                          >
+                            {player.isActive ? 'Siap Main' : 'Istirahat'}
+                          </button>
+                        )}
                       </td>
                       <td className="py-2.5 px-4 text-right">
                         <button

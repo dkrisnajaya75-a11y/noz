@@ -51,6 +51,10 @@ export function isLineupComplete(lineup: CourtLineup): boolean {
   return getLineupPlayerIds(lineup).length === 4;
 }
 
+export function isPlayerPresent(player: Pick<Player, 'isPresent'>): boolean {
+  return player.isPresent !== false;
+}
+
 export function isValidGenderMatch(
   teamA: [Player, Player],
   teamB: [Player, Player],
@@ -316,6 +320,7 @@ export function getEligibleCandidatesForCourt(
   const activePlayers = club.players.filter(
     (p) =>
       p.isActive &&
+      isPlayerPresent(p) &&
       !playingIds.has(p.id) &&
       !pinnedOtherCourtIds.has(p.id)
   );
@@ -379,7 +384,7 @@ export function generateRankedLineupsForCourt(
   }
 
   const activeMatches = club.players
-    .filter((p) => p.isActive)
+    .filter((p) => p.isActive && isPlayerPresent(p))
     .map((p) => p.matchesPlayed);
   const minMatches =
     activeMatches.length > 0 ? Math.min(...activeMatches) : 0;
@@ -542,7 +547,9 @@ export function reconcileOpenCourts(club: Club): Club {
   };
 
   const activePlayerIds = new Set(
-    nextClub.players.filter((p) => p.isActive).map((p) => p.id)
+    nextClub.players
+      .filter((p) => p.isActive && isPlayerPresent(p))
+      .map((p) => p.id)
   );
   const playingIds = new Set<string>();
 
@@ -827,7 +834,9 @@ export function swapSlotWithPlayerOrSlot(
  * Computes match-count evenness summary for the Records screen.
  */
 export function computeEvennessStats(club: Club): EvennessStats {
-  const active = club.players.filter((p) => p.isActive || p.matchesPlayed > 0);
+  const active = club.players.filter(
+    (p) => (p.isActive && isPlayerPresent(p)) || p.matchesPlayed > 0
+  );
   if (active.length === 0) {
     return {
       totalMatches: club.records.length,
@@ -944,3 +953,59 @@ export function applyClubConfiguration(
     courts: nextCourts,
   });
 }
+
+export function setPlayerAttendance(
+  club: Club,
+  playerId: string,
+  isPresent: boolean,
+  now = Date.now()
+): Club {
+  const updatedPlayers = club.players.map((p) =>
+    p.id === playerId
+      ? {
+          ...p,
+          isPresent,
+          checkedInAt: isPresent ? p.checkedInAt ?? now : null,
+        }
+      : p
+  );
+
+  return reconcileOpenCourts({
+    ...club,
+    players: updatedPlayers,
+  });
+}
+
+export function setBulkAttendance(
+  club: Club,
+  isPresent: boolean,
+  now = Date.now()
+): Club {
+  const playingIds = new Set<string>();
+  if (!isPresent) {
+    for (const c of club.courts) {
+      if (c.status === 'playing') {
+        for (const pid of getLineupPlayerIds(c.lineup)) {
+          playingIds.add(pid);
+        }
+      }
+    }
+  }
+
+  const updatedPlayers = club.players.map((p) => {
+    if (!isPresent && playingIds.has(p.id)) {
+      return p;
+    }
+    return {
+      ...p,
+      isPresent,
+      checkedInAt: isPresent ? p.checkedInAt ?? now : null,
+    };
+  });
+
+  return reconcileOpenCourts({
+    ...club,
+    players: updatedPlayers,
+  });
+}
+

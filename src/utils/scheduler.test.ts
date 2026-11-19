@@ -6,8 +6,11 @@ import {
   computeEvennessStats,
   finishCourtMatch,
   getLineupPlayerIds,
+  isPlayerPresent,
   isValidGenderMatch,
   reconcileOpenCourts,
+  setBulkAttendance,
+  setPlayerAttendance,
   startCourtMatch,
   suggestLineupForCourt,
   swapSlotWithPlayerOrSlot,
@@ -425,4 +428,65 @@ test('createInitialAppState seeds only PB Noz club cleanly', () => {
   assert.equal(initial.clubs[0].records.length, 0);
   assert.ok(initial.clubs[0].courts.length >= 1);
 });
+
+test('setPlayerAttendance excludes absent players from open courts and pins, and restores them when present', () => {
+  const players = [
+    makePlayer('p1'),
+    makePlayer('p2'),
+    makePlayer('p3'),
+    makePlayer('p4'),
+    makePlayer('p5'),
+  ];
+  let club = makeBaseClub(players, 1);
+  club.courts[0].pinnedPlayerIds = ['p1'];
+  club = reconcileOpenCourts(club);
+  assert.ok(getLineupPlayerIds(club.courts[0].lineup).includes('p1'));
+
+  // Mark p1 absent (Belum Hadir)
+  club = setPlayerAttendance(club, 'p1', false, 12345);
+  const p1Absent = club.players.find((p) => p.id === 'p1')!;
+  assert.equal(isPlayerPresent(p1Absent), false);
+  assert.equal(p1Absent.checkedInAt, null);
+  assert.equal(club.courts[0].pinnedPlayerIds.includes('p1'), false);
+  assert.deepEqual(
+    new Set(getLineupPlayerIds(club.courts[0].lineup)),
+    new Set(['p2', 'p3', 'p4', 'p5'])
+  );
+
+  // Mark p1 present (Hadir) again and ensure timestamp recorded
+  club = setPlayerAttendance(club, 'p1', true, 67890);
+  const p1Present = club.players.find((p) => p.id === 'p1')!;
+  assert.equal(isPlayerPresent(p1Present), true);
+  assert.equal(p1Present.checkedInAt, 67890);
+});
+
+test('setBulkAttendance updates all non-playing players cleanly and preserves active playing courts', () => {
+  const players = [
+    makePlayer('p1'),
+    makePlayer('p2'),
+    makePlayer('p3'),
+    makePlayer('p4'),
+    makePlayer('p5'),
+  ];
+  let club = makeBaseClub(players, 2);
+  club.courts[0].status = 'playing';
+  club.courts[0].lineup = { teamA: ['p1', 'p2'], teamB: ['p3', 'p4'] };
+  club = reconcileOpenCourts(club);
+
+  // Mark all absent while c1 is playing
+  club = setBulkAttendance(club, false, 1000);
+  for (const id of ['p1', 'p2', 'p3', 'p4']) {
+    assert.equal(isPlayerPresent(club.players.find((p) => p.id === id)!), true);
+  }
+  assert.equal(isPlayerPresent(club.players.find((p) => p.id === 'p5')!), false);
+  assert.deepEqual(getLineupPlayerIds(club.courts[1].lineup), []);
+
+  // Mark all present
+  club = setBulkAttendance(club, true, 2000);
+  assert.equal(
+    club.players.every((p) => isPlayerPresent(p) && p.checkedInAt !== null),
+    true
+  );
+});
+
 

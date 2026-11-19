@@ -15,7 +15,7 @@ import {
   LEVEL_DESCRIPTIONS,
   LEVEL_LABELS,
 } from '../utils/genderStyle';
-import { getLineupPlayerIds } from '../utils/scheduler';
+import { getLineupPlayerIds, isPlayerPresent } from '../utils/scheduler';
 import { SwapSource } from './CourtCard';
 
 interface WaitingQueueProps {
@@ -67,9 +67,9 @@ export function WaitingQueue({
     c.pinnedPlayerIds.forEach((pid) => pinnedCourtByPlayer.set(pid, c));
   }
 
-  // Waiting players: active and not currently playing on a court
+  // Waiting players: present, active, and not currently playing on a court
   const waitingPlayers = players
-    .filter((p) => p.isActive && !onCourtPlayingIds.has(p.id))
+    .filter((p) => p.isActive && isPlayerPresent(p) && !onCourtPlayingIds.has(p.id))
     .sort((a, b) => {
       // Put truly unassigned/un-suggested waiting players first, then suggested
       const aSug = onCourtSuggestedIds.has(a.id) ? 1 : 0;
@@ -81,7 +81,8 @@ export function WaitingQueue({
       return a.lastPlayedAt - b.lastPlayedAt;
     });
 
-  const restingPlayers = players.filter((p) => !p.isActive);
+  const restingPlayers = players.filter((p) => !p.isActive && isPlayerPresent(p));
+  const absentCount = players.filter((p) => !isPlayerPresent(p)).length;
 
   const openCourts = courts.filter((c) => c.status === 'open');
   const effectiveSplitCourtId =
@@ -116,6 +117,7 @@ export function WaitingQueue({
           </h2>
           <p className="text-xs text-slate-500 tabular-nums mt-0.5">
             {waitingPlayers.length} pemain menunggu · {restingPlayers.length} istirahat
+            {absentCount > 0 ? ` · ${absentCount} belum hadir` : ''}
           </p>
         </div>
       </div>

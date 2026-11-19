@@ -14,6 +14,8 @@ export interface Player {
   gender: Gender;
   level: number; // 1..3 (1=Pemula, 2=Menengah, 3=Mahir)
   isActive: boolean; // true = siap main, false = istirahat
+  isPresent?: boolean; // true/undefined = hadir, false = belum hadir
+  checkedInAt?: number | null;
   assignedCourtId: string | null; // digunakan saat queueMode === 'split'
   matchesPlayed: number;
   lastPlayedAt: number; // sequence counter untuk prioritas waktu tunggu
@@ -67,4 +69,4 @@ export interface AppState {
   activeClubId: string;
 }
 
-export type ActiveTab = 'courts' | 'roster' | 'records' | 'settings';
+export type ActiveTab = 'courts' | 'roster' | 'records' | 'attendance' | 'settings';

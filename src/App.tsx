@@ -16,6 +16,8 @@ import {
   getLineupPlayerIds,
   makeLineupSignature,
   reconcileOpenCourts,
+  setBulkAttendance,
+  setPlayerAttendance,
   startCourtMatch,
   suggestLineupForCourt,
   swapSlotWithPlayerOrSlot,
@@ -25,6 +27,7 @@ import { CourtCard, SwapSource } from './components/CourtCard';
 import { WaitingQueue } from './components/WaitingQueue';
 import { RosterView } from './components/RosterView';
 import { RecordsView } from './components/RecordsView';
+import { AttendanceView } from './components/AttendanceView';
 import { SettingsView } from './components/SettingsView';
 import { BulkPasteModal } from './components/BulkPasteModal';
 import {
@@ -110,6 +113,18 @@ export default function App() {
     () => new Map(activeClub.players.map((p) => [p.id, p])),
     [activeClub.players]
   );
+
+  const playingPlayerIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const court of activeClub.courts) {
+      if (court.status === 'playing') {
+        for (const pid of getLineupPlayerIds(court.lineup)) {
+          ids.add(pid);
+        }
+      }
+    }
+    return ids;
+  }, [activeClub.courts]);
 
   const updateActiveClub = (updater: (club: Club) => Club) => {
     setState((prev) => ({
@@ -417,13 +432,16 @@ export default function App() {
   };
 
   const handleAddPlayer = (name: string, gender: Gender, level: number) => {
+    const now = Date.now();
     updateActiveClub((club) => {
       const newPlayer: Player = {
-        id: `p_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        id: `p_${now}_${Math.random().toString(36).slice(2, 6)}`,
         name,
         gender,
         level,
         isActive: true,
+        isPresent: true,
+        checkedInAt: now,
         assignedCourtId: club.courts[0]?.id ?? null,
         matchesPlayed: 0,
         lastPlayedAt: 0,
@@ -438,14 +456,17 @@ export default function App() {
   const handleBulkImportPlayers = (
     imported: Array<{ name: string; gender: Gender; level: number }>
   ) => {
+    const now = Date.now();
     updateActiveClub((club) => {
       const courtCount = Math.max(1, club.courts.length);
       const newPlayers: Player[] = imported.map((item, idx) => ({
-        id: `p_${Date.now()}_${idx}_${Math.random().toString(36).slice(2, 6)}`,
+        id: `p_${now}_${idx}_${Math.random().toString(36).slice(2, 6)}`,
         name: item.name,
         gender: item.gender,
         level: item.level,
         isActive: true,
+        isPresent: true,
+        checkedInAt: now,
         assignedCourtId: club.courts[idx % courtCount]?.id ?? null,
         matchesPlayed: 0,
         lastPlayedAt: 0,
@@ -511,6 +532,18 @@ export default function App() {
     courtId: string | null
   ) => {
     handleUpdatePlayer(playerId, { assignedCourtId: courtId });
+  };
+
+  const handleSetPlayerAttendance = (playerId: string, isPresent: boolean) => {
+    setSwapSource(null);
+    setRerollHistory({});
+    updateActiveClub((club) => setPlayerAttendance(club, playerId, isPresent));
+  };
+
+  const handleSetBulkAttendance = (isPresent: boolean) => {
+    setSwapSource(null);
+    setRerollHistory({});
+    updateActiveClub((club) => setBulkAttendance(club, isPresent));
   };
 
 
@@ -769,12 +802,25 @@ export default function App() {
             onAddPlayer={handleAddPlayer}
             onRemovePlayer={handleRemovePlayer}
             onUpdatePlayer={handleUpdatePlayer}
+            onSetPlayerAttendance={handleSetPlayerAttendance}
             onOpenBulkImport={() => setIsBulkModalOpen(true)}
           />
         )}
 
         {activeTab === 'records' && (
           <RecordsView club={activeClub} onResetRecords={handleResetRecords} />
+        )}
+
+        {activeTab === 'attendance' && (
+          <AttendanceView
+            clubName={activeClub.name}
+            players={activeClub.players}
+            playingPlayerIds={playingPlayerIds}
+            genderStyle={activeClub.settings.genderStyle}
+            onSetPlayerAttendance={handleSetPlayerAttendance}
+            onSetBulkAttendance={handleSetBulkAttendance}
+            onOpenBulkImport={() => setIsBulkModalOpen(true)}
+          />
         )}
 
         {activeTab === 'settings' && (

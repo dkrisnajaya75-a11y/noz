@@ -60,6 +60,8 @@ function normalizeClubForDefault(club: Club): Club {
     gender: p.gender === 'F' ? 'F' : 'M',
     level: clampLevel(p.level),
     isActive: typeof p.isActive === 'boolean' ? p.isActive : true,
+    isPresent: p.isPresent !== false,
+    checkedInAt: null,
     assignedCourtId:
       p.assignedCourtId && validCourtIds.has(p.assignedCourtId)
         ? p.assignedCourtId

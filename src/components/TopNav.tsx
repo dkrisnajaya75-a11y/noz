@@ -1,5 +1,6 @@
 import { Plus, UserPlus } from 'lucide-react';
 import { ActiveTab, Club } from '../types/badminton';
+import { isPlayerPresent } from '../utils/scheduler';
 
 interface TopNavProps {
   activeTab: ActiveTab;
@@ -16,6 +17,7 @@ const NAV_ITEMS: Array<{ id: ActiveTab; label: string }> = [
   { id: 'courts', label: 'Lapangan' },
   { id: 'roster', label: 'Pemain' },
   { id: 'records', label: 'Catatan' },
+  { id: 'attendance', label: 'Absen' },
   { id: 'settings', label: 'Pengaturan' },
 ];
 
@@ -35,7 +37,9 @@ export function TopNav({
   onOpenBulkImport,
   onNavigateToNewClub,
 }: TopNavProps) {
-  const activePlayersCount = activeClub.players.filter((p) => p.isActive).length;
+  const activePlayersCount = activeClub.players.filter(
+    (p) => p.isActive && isPlayerPresent(p)
+  ).length;
   const playingCourtsCount = activeClub.courts.filter(
     (c) => c.status === 'playing'
   ).length;
@@ -100,7 +104,7 @@ export function TopNav({
       {/* Mobile Navigation Strip */}
       <nav
         aria-label="Navigasi utama mobile"
-        className="md:hidden border-t border-slate-100 px-2 grid grid-cols-4"
+        className="md:hidden border-t border-slate-100 px-2 grid grid-cols-5"
       >
         {NAV_ITEMS.map((item) => {
           const isActive = activeTab === item.id;
