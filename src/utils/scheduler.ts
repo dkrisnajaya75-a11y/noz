@@ -7,6 +7,8 @@ import {
   MatchingMode,
   MatchRecord,
   Player,
+  PlayerPreferenceGroup,
+  PlayerPreferenceMode,
 } from '../types/badminton';
 
 export interface PairStats {
@@ -53,6 +55,46 @@ export function isLineupComplete(lineup: CourtLineup): boolean {
 
 export function isPlayerPresent(player: Pick<Player, 'isPresent'>): boolean {
   return player.isPresent !== false;
+}
+
+export function getValidPlayerGroups(club: Club): PlayerPreferenceGroup[] {
+  const playerIds = new Set(club.players.map((p) => p.id));
+  const courtIds = new Set(club.courts.map((c) => c.id));
+  return (club.playerGroups ?? [])
+    .map((g) => {
+      const uniqueIds = Array.from(
+        new Set(g.playerIds.filter((id) => playerIds.has(id)))
+      );
+      const maxLen = g.mode === 'same_team' ? 2 : 4;
+      return {
+        ...g,
+        playerIds: uniqueIds.slice(0, maxLen),
+        courtId: g.courtId && courtIds.has(g.courtId) ? g.courtId : null,
+      };
+    })
+    .filter((g) =>
+      g.mode === 'same_team' ? g.playerIds.length === 2 : g.playerIds.length >= 2
+    );
+}
+
+export function isGroupFulfilledInCourt(
+  group: PlayerPreferenceGroup,
+  court: Court
+): boolean {
+  if (group.courtId && group.courtId !== court.id) return false;
+  const teamA = new Set(court.lineup.teamA.filter(Boolean));
+  const teamB = new Set(court.lineup.teamB.filter(Boolean));
+
+  if (group.mode === 'same_team') {
+    const [aId, bId] = group.playerIds;
+    if (!aId || !bId) return false;
+    return (
+      (teamA.has(aId) && teamA.has(bId)) || (teamB.has(aId) && teamB.has(bId))
+    );
+  }
+
+  const allInCourt = new Set([...teamA, ...teamB]);
+  return group.playerIds.every((id) => allInCourt.has(id));
 }
 
 export function isValidGenderMatch(
@@ -317,6 +359,16 @@ export function getEligibleCandidatesForCourt(
     }
   }
 
+  const validGroups = getValidPlayerGroups(club);
+  const lockedElsewherePlayerIds = new Set<string>();
+  for (const g of validGroups) {
+    if (g.courtId && g.courtId !== targetCourtId) {
+      g.playerIds.forEach((id) => lockedElsewherePlayerIds.add(id));
+    } else if (g.playerIds.some((id) => pinnedOtherCourtIds.has(id))) {
+      g.playerIds.forEach((id) => lockedElsewherePlayerIds.add(id));
+    }
+  }
+
   const activePlayers = club.players.filter(
     (p) =>
       p.isActive &&
@@ -330,7 +382,10 @@ export function getEligibleCandidatesForCourt(
   const pinnedIds = new Set(pinned.map((p) => p.id));
 
   let pool = activePlayers.filter(
-    (p) => !pinnedIds.has(p.id) && !reservedOtherCourtIds.has(p.id)
+    (p) =>
+      !pinnedIds.has(p.id) &&
+      !reservedOtherCourtIds.has(p.id) &&
+      !lockedElsewherePlayerIds.has(p.id)
   );
 
   if (club.settings.queueMode === 'split') {
@@ -364,24 +419,53 @@ export function generateRankedLineupsForCourt(
   const genderMatching: GenderMatchingMode =
     club.settings.genderMatching ?? 'free';
 
+  const validGroups = getValidPlayerGroups(club);
+
   let windowPool = sortedPool.slice(0, maxPoolSize);
-  if (genderMatching === 'same_or_mixed' && sortedPool.length > maxPoolSize) {
-    const windowIds = new Set(windowPool.map((p) => p.id));
-    const hasM = windowPool.some((p) => p.gender === 'M');
-    const hasF = windowPool.some((p) => p.gender === 'F');
-    if (!hasM) {
-      const extraM = sortedPool
-        .filter((p) => p.gender === 'M' && !windowIds.has(p.id))
-        .slice(0, 2);
-      windowPool = [...windowPool, ...extraM];
+  if (sortedPool.length > maxPoolSize) {
+    if (genderMatching === 'same_or_mixed') {
+      const windowIds = new Set(windowPool.map((p) => p.id));
+      const hasM = windowPool.some((p) => p.gender === 'M');
+      const hasF = windowPool.some((p) => p.gender === 'F');
+      if (!hasM) {
+        const extraM = sortedPool
+          .filter((p) => p.gender === 'M' && !windowIds.has(p.id))
+          .slice(0, 2);
+        windowPool = [...windowPool, ...extraM];
+      }
+      if (!hasF) {
+        const extraF = sortedPool
+          .filter((p) => p.gender === 'F' && !windowIds.has(p.id))
+          .slice(0, 2);
+        windowPool = [...windowPool, ...extraF];
+      }
     }
-    if (!hasF) {
-      const extraF = sortedPool
-        .filter((p) => p.gender === 'F' && !windowIds.has(p.id))
-        .slice(0, 2);
-      windowPool = [...windowPool, ...extraF];
+
+    // Ensure group mates of pinned/window players or court-targeted groups are in windowPool
+    const windowIds = new Set(windowPool.map((p) => p.id));
+    const seedIds = new Set([
+      ...pinned.map((p) => p.id),
+      ...windowPool.map((p) => p.id),
+    ]);
+    const poolById = new Map(sortedPool.map((p) => [p.id, p]));
+    for (const g of validGroups) {
+      const touchesWindow =
+        g.courtId === targetCourtId ||
+        g.playerIds.some((id) => seedIds.has(id));
+      if (!touchesWindow) continue;
+      for (const id of g.playerIds) {
+        if (!windowIds.has(id) && poolById.has(id)) {
+          windowPool.push(poolById.get(id)!);
+          windowIds.add(id);
+        }
+      }
     }
   }
+
+  const eligibleIds = new Set([
+    ...pinned.map((p) => p.id),
+    ...pool.map((p) => p.id),
+  ]);
 
   const activeMatches = club.players
     .filter((p) => p.isActive && isPlayerPresent(p))
@@ -410,6 +494,7 @@ export function generateRankedLineupsForCourt(
   combine(0);
 
   const validCandidates: ScoredCandidate[] = [];
+  const groupValidCandidates: ScoredCandidate[] = [];
   const fallbackCandidates: ScoredCandidate[] = [];
   const seenSignatures = new Set<string>();
 
@@ -473,16 +558,86 @@ export function generateRankedLineupsForCourt(
         }
       }
 
-      const candidate = { lineup, signature, score };
+      // Evaluate PlayerPreferenceGroup constraints (Satu Tim Saja & Satu Lapangan Saja)
+      const teamAIds = new Set([teamA[0].id, teamA[1].id]);
+      const teamBIds = new Set([teamB[0].id, teamB[1].id]);
+      const inCourtIds = new Set([...teamAIds, ...teamBIds]);
+      let violatesGroupRule = false;
+      let groupPenalty = 0;
+
+      for (const g of validGroups) {
+        if (g.mode === 'same_team') {
+          const [aId, bId] = g.playerIds;
+          const hasA = inCourtIds.has(aId);
+          const hasB = inCourtIds.has(bId);
+          if (hasA && hasB) {
+            const onOppositeTeams =
+              (teamAIds.has(aId) && teamBIds.has(bId)) ||
+              (teamBIds.has(aId) && teamAIds.has(bId));
+            if (onOppositeTeams) {
+              violatesGroupRule = true;
+              groupPenalty += 100000;
+            } else if (g.courtId === targetCourtId) {
+              groupPenalty -= 25;
+            }
+          } else if (
+            (hasA && !hasB && eligibleIds.has(bId)) ||
+            (hasB && !hasA && eligibleIds.has(aId))
+          ) {
+            violatesGroupRule = true;
+            groupPenalty += 50000;
+          } else if (
+            g.courtId === targetCourtId &&
+            eligibleIds.has(aId) &&
+            eligibleIds.has(bId)
+          ) {
+            // Target court prefers its locked same-team pair
+            groupPenalty += 250;
+          }
+        } else {
+          // mode === 'same_court'
+          const eligibleMembers = g.playerIds.filter((id) => eligibleIds.has(id));
+          const targetCount = Math.min(4, eligibleMembers.length);
+          if (targetCount < 2) continue;
+
+          const presentCount = eligibleMembers.filter((id) =>
+            inCourtIds.has(id)
+          ).length;
+
+          if (g.courtId === targetCourtId) {
+            if (presentCount < targetCount) {
+              groupPenalty += (targetCount - presentCount) * 10000;
+              if (presentCount > 0) {
+                violatesGroupRule = true;
+              }
+            }
+          } else if (!g.courtId) {
+            // Must stay together on whichever court picks any of them
+            if (presentCount > 0 && presentCount < targetCount) {
+              violatesGroupRule = true;
+              groupPenalty += (targetCount - presentCount) * 50000;
+            }
+          }
+        }
+      }
+
+      const candidate = { lineup, signature, score: score + groupPenalty };
       fallbackCandidates.push(candidate);
-      if (isValidGenderMatch(teamA, teamB, genderMatching)) {
-        validCandidates.push(candidate);
+      if (!violatesGroupRule) {
+        groupValidCandidates.push(candidate);
+        if (isValidGenderMatch(teamA, teamB, genderMatching)) {
+          validCandidates.push(candidate);
+        }
       }
     }
   }
 
   const candidates =
-    validCandidates.length > 0 ? validCandidates : fallbackCandidates;
+    validCandidates.length > 0
+      ? validCandidates
+      : groupValidCandidates.length > 0
+      ? groupValidCandidates
+      : fallbackCandidates;
   candidates.sort((a, b) => a.score - b.score);
   return candidates;
 }
@@ -562,6 +717,8 @@ export function reconcileOpenCourts(club: Club): Club {
   // Track players already claimed by earlier open courts
   const claimedOpenIds = new Set<string>();
 
+  const validGroups = getValidPlayerGroups(nextClub);
+
   nextClub = {
     ...nextClub,
     courts: nextClub.courts.map((court) => {
@@ -574,7 +731,52 @@ export function reconcileOpenCourts(club: Club): Club {
 
       // Check if existing suggested lineup is still completely valid and conflict-free
       const currentIds = getLineupPlayerIds(court.lineup);
+      const teamAIds = new Set(court.lineup.teamA.filter(Boolean));
+      const teamBIds = new Set(court.lineup.teamB.filter(Boolean));
+      const currentIdSet = new Set(currentIds);
+
+      const violatesGroups = validGroups.some((g) => {
+        if (g.courtId && g.courtId !== court.id) {
+          return g.playerIds.some(
+            (id) => currentIdSet.has(id) && !validPins.includes(id)
+          );
+        }
+        if (g.mode === 'same_team') {
+          const [aId, bId] = g.playerIds;
+          const hasA = currentIdSet.has(aId);
+          const hasB = currentIdSet.has(bId);
+          if (hasA && hasB) {
+            return (
+              (teamAIds.has(aId) && teamBIds.has(bId)) ||
+              (teamBIds.has(aId) && teamAIds.has(bId))
+            );
+          }
+          if (hasA && !hasB && activePlayerIds.has(bId) && !playingIds.has(bId)) {
+            return true;
+          }
+          if (hasB && !hasA && activePlayerIds.has(aId) && !playingIds.has(aId)) {
+            return true;
+          }
+        } else {
+          const eligibleMembers = g.playerIds.filter(
+            (id) => activePlayerIds.has(id) && !playingIds.has(id)
+          );
+          const targetCount = Math.min(4, eligibleMembers.length);
+          const inCourtCount = eligibleMembers.filter((id) =>
+            currentIdSet.has(id)
+          ).length;
+          if (g.courtId === court.id && inCourtCount < targetCount) {
+            return true;
+          }
+          if (!g.courtId && inCourtCount > 0 && inCourtCount < targetCount) {
+            return true;
+          }
+        }
+        return false;
+      });
+
       const allValid =
+        !violatesGroups &&
         currentIds.length === 4 &&
         currentIds.every((id) => {
           if (!activePlayerIds.has(id) || playingIds.has(id) || claimedOpenIds.has(id)) {
@@ -951,6 +1153,10 @@ export function applyClubConfiguration(
     settings: { ...config.settings },
     players: nextPlayers,
     courts: nextCourts,
+    playerGroups: (club.playerGroups ?? []).map((g) => ({
+      ...g,
+      courtId: g.courtId && validCourtIds.has(g.courtId) ? g.courtId : null,
+    })),
   });
 }
 
@@ -1008,4 +1214,59 @@ export function setBulkAttendance(
     players: updatedPlayers,
   });
 }
+
+export function addPlayerGroup(
+  club: Club,
+  input: {
+    mode: PlayerPreferenceMode;
+    playerIds: string[];
+    courtId?: string | null;
+  },
+  now = Date.now()
+): Club {
+  const validPlayerIds = new Set(club.players.map((p) => p.id));
+  const validCourtIds = new Set(club.courts.map((c) => c.id));
+  const maxLen = input.mode === 'same_team' ? 2 : 4;
+  const uniqueIds = Array.from(
+    new Set(input.playerIds.filter((id) => validPlayerIds.has(id)))
+  ).slice(0, maxLen);
+
+  if (input.mode === 'same_team' && uniqueIds.length !== 2) return club;
+  if (input.mode === 'same_court' && uniqueIds.length < 2) return club;
+
+  const normalizedCourtId =
+    input.courtId && validCourtIds.has(input.courtId) ? input.courtId : null;
+
+  const newGroup: PlayerPreferenceGroup = {
+    id: `grp_${now}_${Math.random().toString(36).slice(2, 6)}`,
+    mode: input.mode,
+    playerIds: uniqueIds,
+    courtId: normalizedCourtId,
+    createdAt: now,
+  };
+
+  return reconcileOpenCourts({
+    ...club,
+    playerGroups: [...(club.playerGroups ?? []), newGroup],
+    courts: club.courts.map((c) =>
+      c.status === 'open'
+        ? { ...c, lineup: { teamA: [null, null], teamB: [null, null] } }
+        : c
+    ),
+  });
+}
+
+export function removePlayerGroup(club: Club, groupId: string): Club {
+  const nextGroups = (club.playerGroups ?? []).filter((g) => g.id !== groupId);
+  return reconcileOpenCourts({
+    ...club,
+    playerGroups: nextGroups,
+    courts: club.courts.map((c) =>
+      c.status === 'open'
+        ? { ...c, lineup: { teamA: [null, null], teamB: [null, null] } }
+        : c
+    ),
+  });
+}
+
 

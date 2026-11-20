@@ -1,4 +1,11 @@
-import { AppState, Club, ClubSettings, Court, Player } from '../types/badminton';
+import {
+  AppState,
+  Club,
+  ClubSettings,
+  Court,
+  Player,
+  PlayerPreferenceGroup,
+} from '../types/badminton';
 import { clampLevel } from './genderStyle';
 import { reconcileOpenCourts } from './scheduler';
 
@@ -70,12 +77,34 @@ function normalizeClubForDefault(club: Club): Club {
     lastPlayedAt: 0,
   }));
 
+  const validPlayerIds = new Set(normalizedPlayers.map((p) => p.id));
+  const normalizedGroups: PlayerPreferenceGroup[] = (club.playerGroups ?? [])
+    .map((g) => {
+      const uniqueIds = Array.from(
+        new Set(g.playerIds.filter((id) => validPlayerIds.has(id)))
+      );
+      const maxLen = g.mode === 'same_team' ? 2 : 4;
+      const trimmedIds = uniqueIds.slice(0, maxLen);
+      return {
+        id: g.id,
+        mode: g.mode === 'same_team' ? ('same_team' as const) : ('same_court' as const),
+        playerIds: trimmedIds,
+        courtId:
+          g.courtId && validCourtIds.has(g.courtId) ? g.courtId : null,
+        createdAt: typeof g.createdAt === 'number' ? g.createdAt : Date.now(),
+      };
+    })
+    .filter((g) =>
+      g.mode === 'same_team' ? g.playerIds.length === 2 : g.playerIds.length >= 2
+    );
+
   return reconcileOpenCourts({
     id: club.id,
     name: club.name.trim() || 'PB Noz',
     players: normalizedPlayers,
     courts: normalizedCourts,
     records: [],
+    playerGroups: normalizedGroups,
     settings: normalizeClubSettings(club.settings),
     sequenceCounter: 0,
   });

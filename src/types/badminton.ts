@@ -54,12 +54,23 @@ export interface ClubSettings {
   genderStyle: GenderStyle;
 }
 
+export type PlayerPreferenceMode = 'same_team' | 'same_court';
+
+export interface PlayerPreferenceGroup {
+  id: string;
+  mode: PlayerPreferenceMode;
+  playerIds: string[]; // 2 pemain untuk same_team, 2..4 pemain untuk same_court
+  courtId?: string | null; // null/undefined = lapangan mana saja, atau id lapangan tertentu
+  createdAt: number;
+}
+
 export interface Club {
   id: string;
   name: string;
   players: Player[];
   courts: Court[];
   records: MatchRecord[];
+  playerGroups?: PlayerPreferenceGroup[];
   settings: ClubSettings;
   sequenceCounter: number;
 }

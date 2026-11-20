@@ -7,15 +7,19 @@ import {
   Court,
   Gender,
   Player,
+  PlayerPreferenceMode,
 } from './types/badminton';
 import { createInitialAppState } from './utils/seedData';
 import { clampLevel } from './utils/genderStyle';
 import {
+  addPlayerGroup,
   applyClubConfiguration,
   finishCourtMatch,
   getLineupPlayerIds,
+  getValidPlayerGroups,
   makeLineupSignature,
   reconcileOpenCourts,
+  removePlayerGroup,
   setBulkAttendance,
   setPlayerAttendance,
   startCourtMatch,
@@ -24,6 +28,7 @@ import {
 } from './utils/scheduler';
 import { TopNav } from './components/TopNav';
 import { CourtCard, SwapSource } from './components/CourtCard';
+import { PlayerGroupsPanel } from './components/PlayerGroupsPanel';
 import { WaitingQueue } from './components/WaitingQueue';
 import { RosterView } from './components/RosterView';
 import { RecordsView } from './components/RecordsView';
@@ -399,6 +404,10 @@ export default function App() {
         ...club,
         courts: nextCourts,
         players: updatedPlayers,
+        playerGroups: (club.playerGroups ?? []).map((g) => ({
+          ...g,
+          courtId: g.courtId && validCourtIds.has(g.courtId) ? g.courtId : null,
+        })),
       });
     });
   };
@@ -427,6 +436,10 @@ export default function App() {
         ...club,
         courts: remaining,
         players: updatedPlayers,
+        playerGroups: (club.playerGroups ?? []).map((g) => ({
+          ...g,
+          courtId: g.courtId === courtId ? null : g.courtId,
+        })),
       });
     });
   };
@@ -496,10 +509,18 @@ export default function App() {
         },
       }));
 
+      const updatedGroups = (club.playerGroups ?? [])
+        .map((g) => ({
+          ...g,
+          playerIds: g.playerIds.filter((id) => id !== playerId),
+        }))
+        .filter((g) => g.playerIds.length >= 2);
+
       return reconcileOpenCourts({
         ...club,
         players: club.players.filter((p) => p.id !== playerId),
         courts: updatedCourts,
+        playerGroups: updatedGroups,
       });
     });
   };
@@ -544,6 +565,22 @@ export default function App() {
     setSwapSource(null);
     setRerollHistory({});
     updateActiveClub((club) => setBulkAttendance(club, isPresent));
+  };
+
+  const handleAddPlayerGroup = (input: {
+    mode: PlayerPreferenceMode;
+    playerIds: string[];
+    courtId: string | null;
+  }) => {
+    setSwapSource(null);
+    setRerollHistory({});
+    updateActiveClub((club) => addPlayerGroup(club, input));
+  };
+
+  const handleRemovePlayerGroup = (groupId: string) => {
+    setSwapSource(null);
+    setRerollHistory({});
+    updateActiveClub((club) => removePlayerGroup(club, groupId));
   };
 
 
@@ -642,6 +679,7 @@ export default function App() {
       players: [],
       courts: newCourts,
       records: [],
+      playerGroups: [],
       settings: {
         matchingMode: 'balanced',
         genderMatching: 'free',
@@ -773,6 +811,15 @@ export default function App() {
                   />
                 ))}
               </div>
+
+              <PlayerGroupsPanel
+                players={activeClub.players}
+                courts={activeClub.courts}
+                groups={getValidPlayerGroups(activeClub)}
+                genderStyle={activeClub.settings.genderStyle}
+                onAddGroup={handleAddPlayerGroup}
+                onRemoveGroup={handleRemovePlayerGroup}
+              />
             </div>
 
             <div className="lg:col-span-4 xl:col-span-3 lg:sticky lg:top-4">

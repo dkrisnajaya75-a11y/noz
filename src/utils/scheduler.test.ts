@@ -2,13 +2,16 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Club, Player } from '../types/badminton';
 import {
+  addPlayerGroup,
   applyClubConfiguration,
   computeEvennessStats,
   finishCourtMatch,
   getLineupPlayerIds,
+  isGroupFulfilledInCourt,
   isPlayerPresent,
   isValidGenderMatch,
   reconcileOpenCourts,
+  removePlayerGroup,
   setBulkAttendance,
   setPlayerAttendance,
   startCourtMatch,
@@ -488,5 +491,83 @@ test('setBulkAttendance updates all non-playing players cleanly and preserves ac
     true
   );
 });
+
+test('addPlayerGroup with same_team keeps paired players on the exact same team and never as opponents', () => {
+  const players = [
+    makePlayer('p1', { level: 3, matchesPlayed: 0 }),
+    makePlayer('p2', { level: 3, matchesPlayed: 0 }),
+    makePlayer('p3', { level: 1, matchesPlayed: 0 }),
+    makePlayer('p4', { level: 1, matchesPlayed: 0 }),
+  ];
+  let club = makeBaseClub(players, 1);
+  // Without same_team, level balance would split p1+p3 vs p2+p4
+  club = addPlayerGroup(club, { mode: 'same_team', playerIds: ['p1', 'p2'], courtId: null });
+
+  const c1 = club.courts[0];
+  assert.equal(isGroupFulfilledInCourt(club.playerGroups![0], c1), true);
+  const teamASet = new Set(c1.lineup.teamA);
+  const teamBSet = new Set(c1.lineup.teamB);
+  assert.ok(
+    (teamASet.has('p1') && teamASet.has('p2')) ||
+      (teamBSet.has('p1') && teamBSet.has('p2'))
+  );
+});
+
+test('addPlayerGroup with same_court locks group to specific court or keeps them together on one court', () => {
+  const players = [
+    makePlayer('p1', { matchesPlayed: 0 }),
+    makePlayer('p2', { matchesPlayed: 0 }),
+    makePlayer('p3', { matchesPlayed: 0 }),
+    makePlayer('p4', { matchesPlayed: 0 }),
+    makePlayer('p5', { matchesPlayed: 1 }),
+    makePlayer('p6', { matchesPlayed: 1 }),
+    makePlayer('p7', { matchesPlayed: 1 }),
+    makePlayer('p8', { matchesPlayed: 1 }),
+  ];
+  let club = makeBaseClub(players, 2);
+  // Lock p1..p4 strictly to Lapangan 2 (c2)
+  club = addPlayerGroup(club, {
+    mode: 'same_court',
+    playerIds: ['p1', 'p2', 'p3', 'p4'],
+    courtId: 'c2',
+  });
+
+  const c1Ids = new Set(getLineupPlayerIds(club.courts[0].lineup));
+  const c2Ids = new Set(getLineupPlayerIds(club.courts[1].lineup));
+  assert.deepEqual(c1Ids, new Set(['p5', 'p6', 'p7', 'p8']));
+  assert.deepEqual(c2Ids, new Set(['p1', 'p2', 'p3', 'p4']));
+  assert.equal(isGroupFulfilledInCourt(club.playerGroups![0], club.courts[1]), true);
+
+  // Removing group restores open suggestions cleanly
+  club = removePlayerGroup(club, club.playerGroups![0].id);
+  assert.equal(club.playerGroups!.length, 0);
+});
+
+test('shared same_court group stays together on one court without splitting across courts', () => {
+  const players = [
+    makePlayer('p1', { matchesPlayed: 0 }),
+    makePlayer('p2', { matchesPlayed: 0 }),
+    makePlayer('p3', { matchesPlayed: 2 }),
+    makePlayer('p4', { matchesPlayed: 2 }),
+    makePlayer('p5', { matchesPlayed: 0 }),
+    makePlayer('p6', { matchesPlayed: 0 }),
+    makePlayer('p7', { matchesPlayed: 0 }),
+    makePlayer('p8', { matchesPlayed: 0 }),
+  ];
+  let club = makeBaseClub(players, 2);
+  // Group p1..p4 wants same court (any court), even though p3/p4 have more matches
+  club = addPlayerGroup(club, {
+    mode: 'same_court',
+    playerIds: ['p1', 'p2', 'p3', 'p4'],
+    courtId: null,
+  });
+
+  const c1Ids = new Set(getLineupPlayerIds(club.courts[0].lineup));
+  const c2Ids = new Set(getLineupPlayerIds(club.courts[1].lineup));
+  const groupInC1 = ['p1', 'p2', 'p3', 'p4'].filter((id) => c1Ids.has(id)).length;
+  const groupInC2 = ['p1', 'p2', 'p3', 'p4'].filter((id) => c2Ids.has(id)).length;
+  assert.ok((groupInC1 === 4 && groupInC2 === 0) || (groupInC1 === 0 && groupInC2 === 4));
+});
+
 
 

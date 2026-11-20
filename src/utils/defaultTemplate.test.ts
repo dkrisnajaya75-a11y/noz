@@ -101,3 +101,21 @@ test('parseDefaultTemplateJson validates and restores default template cleanly',
   assert.equal(parseDefaultTemplateJson('invalid json'), null);
   assert.equal(parseDefaultTemplateJson('{"clubs":[]}'), null);
 });
+
+test('createDefaultTemplate preserves valid playerGroups and filters invalid references', () => {
+  const state = makeSampleState();
+  state.clubs[0].playerGroups = [
+    { id: 'g1', mode: 'same_team', playerIds: ['p1', 'p2'], courtId: null, createdAt: 100 },
+    { id: 'g2', mode: 'same_court', playerIds: ['p3', 'p4', 'missing_p'], courtId: 'c2', createdAt: 200 },
+    { id: 'g3', mode: 'same_team', playerIds: ['p1', 'missing_p'], courtId: null, createdAt: 300 },
+  ];
+
+  const template = createDefaultTemplate(state, 7000);
+  const restored = restoreStateFromDefaultTemplate(template);
+  const groups = restored.clubs[0].playerGroups ?? [];
+  assert.equal(groups.length, 2);
+  assert.deepEqual(groups[0].playerIds, ['p1', 'p2']);
+  assert.deepEqual(groups[1].playerIds, ['p3', 'p4']);
+  assert.equal(groups[1].courtId, 'c2');
+});
+

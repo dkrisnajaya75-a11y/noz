@@ -19,7 +19,7 @@ export function createInitialAppState(): AppState {
     players: [],
     courts: createCourts(2, 'pb_noz'),
     records: [],
-    requests: [],
+    playerGroups: [],
     settings: {
       matchingMode: 'balanced',
       genderMatching: 'free',
